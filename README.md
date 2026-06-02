@@ -12,6 +12,118 @@
 
 Schedule messages to be transmitted when you want them to go, including messages with attachments.
 
+## User Guide: Scheduling Messages
+
+This plugin adds a **Send Later** control to the Roundcube compose screen.
+
+### Schedule a message
+
+1. Open **Compose** and write the message as usual.
+2. Fill in recipients, subject, body, and attachments.
+3. Choose the planned send date and time in the scheduled sending control.
+4. Click **Send Later**.
+5. The message is placed into the scheduled queue and will be sent by the background worker at or shortly after the selected time.
+
+Scheduled times are displayed in the configured scheduled timezone. Internally, the queue stores timestamps in UTC.
+
+### View scheduled messages
+
+Open the scheduled messages page in Roundcube settings to review queued messages. The list shows the planned send time, recipient, subject, status, and available actions.
+
+Common statuses:
+
+- `queued` — waiting for the planned send time.
+- `sending` — currently being processed by the worker.
+- `sent` — already sent and no longer editable from the queue list.
+- `error` — sending failed and the worker may retry depending on configuration.
+- `canceled` — canceled by the user.
+
+### Change the send time
+
+You can change the planned send time for messages that are still waiting in the queue. Use the edit/reschedule action in the scheduled messages list and enter a new future date and time.
+
+### Editing message contents
+
+At the moment, the scheduled messages UI supports changing only the planned send time. It does **not** provide full editing of the message contents after scheduling.
+
+This means that after a message is scheduled, users should not expect to edit:
+
+- recipients,
+- subject,
+- message body,
+- attachments.
+
+If the content needs to be changed, the safest workflow is:
+
+1. Cancel or delete the scheduled message.
+2. Create a new message with the corrected content.
+3. Schedule it again.
+
+This limitation exists because scheduled messages are stored as queued MIME payloads for reliable background delivery. Full content editing would require reopening the queued message as a Roundcube draft and updating the queue record after saving.
+
+### Practical notes
+
+- Pick a future time. Past times are rejected.
+- The worker runs periodically, so delivery may happen shortly after the exact selected minute.
+- Do not remove or change the scheduled queue record manually unless you are an administrator.
+- If a scheduled message fails, contact the mail administrator with the approximate scheduled time and recipient.
+
+## Руководство пользователя: отложенная отправка
+
+Плагин добавляет кнопку **Отправить позже** в окно создания письма Roundcube.
+
+### Как запланировать письмо
+
+1. Откройте **Создать письмо** и подготовьте письмо как обычно.
+2. Укажите получателей, тему, текст письма и вложения.
+3. Выберите дату и время отправки в поле отложенной отправки.
+4. Нажмите **Отправить позже**.
+5. Письмо будет добавлено в очередь и отправлено фоновым обработчиком в выбранное время или немного позже.
+
+Время в интерфейсе отображается в настроенной таймзоне. Внутри очереди время хранится в UTC.
+
+### Где посмотреть запланированные письма
+
+Список запланированных писем доступен в настройках Roundcube. В нем отображаются время отправки, получатель, тема, статус и доступные действия.
+
+Основные статусы:
+
+- `queued` — письмо ожидает времени отправки.
+- `sending` — письмо сейчас обрабатывается фоновым обработчиком.
+- `sent` — письмо уже отправлено и больше не редактируется из списка очереди.
+- `error` — при отправке возникла ошибка; повторная попытка зависит от настроек.
+- `canceled` — отправка отменена пользователем.
+
+### Как изменить время отправки
+
+Для писем, которые еще ожидают отправки, можно изменить только запланированное время. Используйте действие редактирования/переноса в списке запланированных писем и укажите новую дату и время в будущем.
+
+### Редактирование содержимого письма
+
+На текущий момент интерфейс запланированных писем позволяет менять только время отправки. Полноценное редактирование содержимого уже запланированного письма не поддерживается.
+
+После планирования письма пользователь не должен рассчитывать на изменение:
+
+- получателей,
+- темы,
+- текста письма,
+- вложений.
+
+Если содержимое нужно изменить, самый безопасный порядок действий:
+
+1. Отменить или удалить запланированное письмо.
+2. Создать новое письмо с правильным содержимым.
+3. Снова запланировать отправку.
+
+Это ограничение связано с тем, что запланированные письма сохраняются как MIME-сообщения в очереди для надежной фоновой отправки. Для полноценного редактирования нужно было бы открывать такое письмо как черновик Roundcube и после сохранения обновлять запись в очереди.
+
+### Практические замечания
+
+- Выбирайте время в будущем. Время в прошлом будет отклонено.
+- Фоновый обработчик запускается периодически, поэтому письмо может уйти не строго в выбранную секунду, а немного позже.
+- Не изменяйте записи очереди вручную, если вы не администратор.
+- Если письмо не отправилось, сообщите администратору примерное время отправки и получателя.
+
 # Scheduled Sending — Installation Guide for Roundcube
 
 This plugin lets users **schedule emails to be sent later**. It includes a web UI, localization, and CLI helpers to trigger a **queue worker** that delivers messages when they’re due.
