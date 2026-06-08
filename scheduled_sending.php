@@ -1085,7 +1085,6 @@ class scheduled_sending extends rcube_plugin
         $q  = "INSERT INTO $table (user_id, identity_id, scheduled_at, status, raw_mime, meta_json, created_at, updated_at)
                VALUES (?, ?, ?, 'queued', ?,  ?, NOW(), NOW())";
         $ok = $db->query($q, $user_id, $identity_id, $scheduled_at, $raw_mime, json_encode($meta));
-        $job_id = $db->insert_id();
         if (!$ok) {
             $db_error = '';
             foreach (array('last_error', 'error') as $method) {
@@ -1099,27 +1098,6 @@ class scheduled_sending extends rcube_plugin
                 }
             }
             $this->ss_debug(array('msg'=>'queue insert failed','table'=>$table,'scheduled_at'=>$scheduled_at,'db_error'=>$db_error));
-        }
-
-        // Save a Draft copy
-        try {
-            $sentmb = $rc->config->get('sent_mbox', 'Sent');
-            if ($sentmb) {
-                $storage = $rc->get_storage();
-                if (!$storage->folder_exists($sentmb)) {
-                    $storage->create_folder($sentmb, true);
-                }
-                $saved = $storage->save_message($sentmb, $raw_mime, null, false, array('SEEN'));
-                $this->ss_debug(array('msg'=>'initial saved to sent','ok'=>(bool)$saved,'folder'=>$sentmb));
-                $meta['initial_saved_in'] = 'Sent';
-                if ($saved && isset($job_id) && $job_id) {
-                    if (!is_array($meta)) { $meta = array(); }
-                    $meta['draft_uid'] = $saved;
-                    $db->query("UPDATE $table SET meta_json=? WHERE id=?", json_encode($meta), (int)$job_id);
-                }
-            }
-        } catch (Exception $e) {
-            $this->ss_debug(array('msg'=>'draft save error','err'=>$e->getMessage()));
         }
 
         $this->log('queue insert', array('ok'=>(bool)$ok, 'scheduled_at'=>$scheduled_at, 'framed'=>(int)$rc->output->framed, 'identity_id'=>$identity_id));
@@ -1189,25 +1167,33 @@ class scheduled_sending extends rcube_plugin
         foreach ($rows as $row) {
             $id  = (int)$row['id'];
             $raw = (string)$row['raw_mime'];
+            $meta = array();
+            if (!empty($row['meta_json'])) {
+                $decoded_meta = json_decode($row['meta_json'], true);
+                if (is_array($decoded_meta)) $meta = $decoded_meta;
+            }
             if ($raw === '') {
                 $db->query("UPDATE $table SET status = 'error', updated_at = NOW() WHERE id = ?", $id);
                 $this->ss_debug(array('msg'=>'empty raw_mime','id'=>$id));
                 continue;
             }
 
-            $hdrs  = $this->ss_parse_headers($raw);
-            $from  = isset($hdrs['from']) ? $hdrs['from'] : '';
-            $to    = isset($hdrs['to']) ? $hdrs['to'] : '';
-            $cc    = isset($hdrs['cc']) ? $hdrs['cc'] : '';
-            $bcc   = isset($hdrs['bcc']) ? $hdrs['bcc'] : '';
-            $subj  = isset($hdrs['subject']) ? $hdrs['subject'] : '';
-            $msgid = isset($hdrs['message-id']) ? $hdrs['message-id'] : '';
+            list($raw_headers, $body) = $this->ss_split_raw_message($raw);
+            $delivery_headers = $this->ss_parse_raw_headers($raw_headers);
+            $from  = $this->ss_header_value($delivery_headers, 'From');
+            $to    = $this->ss_header_value($delivery_headers, 'To');
+            $cc    = $this->ss_header_value($delivery_headers, 'Cc');
+            $bcc   = $this->ss_header_value($delivery_headers, 'Bcc');
+            $subj  = $this->ss_header_value($delivery_headers, 'Subject');
+            $msgid = $this->ss_header_value($delivery_headers, 'Message-ID');
+
+            $this->ss_set_header_value($delivery_headers, 'Date', $this->ss_actual_date_header());
+            $this->ss_remove_header($delivery_headers, 'X-SS-Patched-Date');
+            $this->ss_remove_header($delivery_headers, 'Bcc');
+            $delivery_raw = $this->ss_rebuild_raw_message($delivery_headers, $body);
 
             $ok = false;
             if ($delivery === 'mail') {
-                // Split raw into header/body at first blank line
-                list($hdrblock, $body) = $this->ss_split_raw_message($raw);
-
                 // Build recipients
                 $rcpts_list = array_values(array_unique(array_merge(
                     $this->ss_extract_recipients($to),
@@ -1215,8 +1201,15 @@ class scheduled_sending extends rcube_plugin
                     $this->ss_extract_recipients($bcc)
                 )));
                 $rcpts = count($rcpts_list) ? implode(', ', $rcpts_list) : trim(implode(', ', array_filter(array($to, $cc, $bcc))));
-                // Remove To/Subject headers from hdrblock to avoid duplication
-                $hdrblock = preg_replace('/^(Subject|To):.*\\r?\\n/im', '', $hdrblock);
+
+                $mail_headers = $delivery_headers;
+                $this->ss_remove_header($mail_headers, 'To');
+                $this->ss_remove_header($mail_headers, 'Subject');
+                $hdr_lines = array();
+                foreach ($mail_headers as $name => $value) {
+                    $hdr_lines[] = $name . ': ' . $value;
+                }
+                $hdrblock = implode("\r\n", $hdr_lines);
 
                 $params = '';
                 if ($from && preg_match('/<([^>]+)>/', $from, $m)) {
@@ -1243,14 +1236,25 @@ class scheduled_sending extends rcube_plugin
                         if (!$storage->folder_exists($sentmb)) {
                             $storage->create_folder($sentmb, true);
                         }
-                        $storage->save_message($sentmb, $raw);
+                        $saved_sent = $storage->save_message($sentmb, $delivery_raw);
+                        if ($saved_sent
+                            && !empty($meta['initial_saved_in'])
+                            && $meta['initial_saved_in'] === 'Sent'
+                            && !empty($meta['draft_uid'])
+                        ) {
+                            $storage->delete_message((int) $meta['draft_uid'], $sentmb);
+                        }
                     }
 
                     // Delete the original draft by Message-ID
                     $drafts = $cfg->get('drafts_mbox', 'Drafts');
                     if (!empty($drafts)) {
                         $draft_uid = null;
-                        if (isset($meta) && is_array($meta) && !empty($meta['draft_uid'])) {
+                        if (isset($meta) && is_array($meta)
+                            && !empty($meta['draft_uid'])
+                            && !empty($meta['draft_folder'])
+                            && $meta['draft_folder'] === $drafts
+                        ) {
                             $draft_uid = (int)$meta['draft_uid'];
                         }
                         if ($draft_uid) {
@@ -1264,11 +1268,11 @@ class scheduled_sending extends rcube_plugin
                             }
                         }
                     }
-                    $db->query("UPDATE $table SET status = 'sent', updated_at = NOW() WHERE id = ?", $id);
-                    $sent_ok++;
                 } catch (\Exception $e) {
                     $this->ss_debug(array('msg'=>'worker imap err','err'=>$e->getMessage()));
                 }
+                $db->query("UPDATE $table SET status = 'sent', raw_mime = ?, updated_at = NOW() WHERE id = ?", $delivery_raw, $id);
+                $sent_ok++;
             }
 		else {
                 $db->query("UPDATE $table SET status = 'error', updated_at = NOW() WHERE id = ?", $id);
