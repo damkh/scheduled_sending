@@ -65,6 +65,9 @@ This limitation exists because scheduled messages are stored as queued MIME payl
 
 - Pick a future time. Past times are rejected.
 - The worker runs periodically, so delivery may happen shortly after the exact selected minute.
+- The outgoing message uses the actual delivery time, not the time when the message was composed or scheduled.
+- After successful delivery, a copy is saved in the sender's **Sent** folder with the same actual delivery timestamp.
+- If the background worker cannot access the sender's IMAP session, the Sent copy is saved on the sender's next authenticated Roundcube request. Delivery to recipients is not delayed by this synchronization.
 - Do not remove or change the scheduled queue record manually unless you are an administrator.
 - If a scheduled message fails, contact the mail administrator with the approximate scheduled time and recipient.
 
@@ -121,6 +124,9 @@ This limitation exists because scheduled messages are stored as queued MIME payl
 
 - Выбирайте время в будущем. Время в прошлом будет отклонено.
 - Фоновый обработчик запускается периодически, поэтому письмо может уйти не строго в выбранную секунду, а немного позже.
+- В отправленном письме указывается фактическое время отправки, а не время составления или постановки в очередь.
+- После успешной доставки копия письма сохраняется в папке **Отправленные** с тем же фактическим временем отправки.
+- Если фоновый обработчик не имеет доступа к IMAP-сессии отправителя, копия появится в папке **Отправленные** при следующем авторизованном запросе пользователя в Roundcube. Это не задерживает доставку получателю.
 - Не изменяйте записи очереди вручную, если вы не администратор.
 - Если письмо не отправилось, сообщите администратору примерное время отправки и получателя.
 
@@ -172,6 +178,25 @@ This guide covers both **Composer-based** and **manual** installation, database 
    ```
 
 > Composer will install the plugin under `plugins/scheduled_sending` (per its `composer.json`).
+
+### Updating a Composer installation
+
+To install a tagged release such as `1.3.2`, update the package from the Roundcube root:
+
+```bash
+composer require texxasrulez/scheduled_sending:^1.3.2 --with-all-dependencies
+composer show texxasrulez/scheduled_sending
+```
+
+The installed version is recorded in `composer.lock`. The plugin also exposes its version through `scheduled_sending::info()`.
+
+After replacing PHP plugin files, restart the PHP-FPM service or the PHP/Roundcube container so OPcache cannot continue executing stale bytecode:
+
+```bash
+sudo systemctl restart php8.2-fpm
+```
+
+Adjust the service name to the PHP version used by the Roundcube web process.
 
 ### Option B — Manual install
 1. Unzip the plugin into Roundcube’s plugins directory:
@@ -331,6 +356,8 @@ Cron variant:
    - `logs/` or a dedicated log (the plugin writes via `rcube::write_log('scheduled_sending', ...)` when enabled)
 5. Confirm sent messages land in the configured **Sent** folder (if set).
 
+If the worker has no authenticated IMAP session, open Roundcube as the sender and refresh the mailbox. The plugin will retry the pending Sent-folder append in that authenticated session.
+
 ---
 
 ## 8) Troubleshooting
@@ -339,6 +366,8 @@ Cron variant:
 - **Nothing gets sent**: verify the cron is running and the URL points to your Roundcube base. Check that due items exist in `scheduled_queue` and `status` is `queued`.
 - **Timezones**: UI may use `scheduled_timezone`; storage is UTC. Ensure your server clock is correct (NTP) and PHP `date.timezone` is set.
 - **Mail transport**: `scheduled_sending_delivery` uses Roundcube’s SMTP by default. If using `mail` or a relay, ensure it’s configured correctly in Roundcube.
+- **Message delivered but missing from Sent**: log in as the sender and refresh Roundcube so the pending IMAP append can run. Check `meta_json` for `sent_append_pending`, `sent_saved`, and `sent_save_error`.
+- **Updated code is not taking effect**: verify the actual file under `plugins/scheduled_sending`, then restart PHP-FPM or the relevant container to clear OPcache.
 - **Locks**: if you see messages about an active lock, either reduce the cron frequency or increase `scheduled_sending_lock_timeout`.
 
 ---
