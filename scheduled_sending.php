@@ -711,7 +711,8 @@ class scheduled_sending extends rcube_plugin
                 return false;
             }
 
-            if (!$storage->save_message($sentmb, (string) $raw_mime)) {
+            $message = (string) $raw_mime;
+            if (!$storage->save_message($sentmb, $message)) {
                 $error = 'IMAP save_message returned false';
                 return false;
             }
@@ -730,7 +731,7 @@ class scheduled_sending extends rcube_plugin
             $meta['sent_saved_at'] = gmdate('Y-m-d H:i:s');
             unset($meta['sent_save_error']);
             return true;
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             $error = $e->getMessage();
             return false;
         }
