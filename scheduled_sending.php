@@ -7,6 +7,18 @@ require_once __DIR__ . '/queue.inc.php';
  */
 class scheduled_sending extends rcube_plugin
 {
+    const PLUGIN_VERSION = '1.3.1';
+
+    public static function info()
+    {
+        return array(
+            'name' => 'Scheduled Sending',
+            'vendor' => 'texxasrulez',
+            'version' => self::PLUGIN_VERSION,
+            'license' => 'GPL-3.0',
+            'uri' => 'https://github.com/texxasrulez/scheduled_sending',
+        );
+    }
     
     // Unified debug logger; respects config('scheduled_debug', false)
     private function ss_debug($payload) {
@@ -678,6 +690,118 @@ class scheduled_sending extends rcube_plugin
         return $table ?: 'scheduled_queue';
     }
 
+    private function ss_append_to_sent($raw_mime, &$meta, &$error)
+    {
+        $error = '';
+
+        try {
+            $storage = $this->rc->get_storage();
+            $sentmb = $this->rc->config->get(
+                'sent_mbox',
+                $this->rc->config->get('scheduled_sending_sent_folder', 'Sent')
+            );
+
+            if (empty($sentmb)) {
+                $error = 'Sent folder is not configured';
+                return false;
+            }
+
+            if (!$storage->folder_exists($sentmb) && !$storage->create_folder($sentmb, true)) {
+                $error = 'Unable to create Sent folder';
+                return false;
+            }
+
+            if (!$storage->save_message($sentmb, (string) $raw_mime)) {
+                $error = 'IMAP save_message returned false';
+                return false;
+            }
+
+            $drafts = $this->rc->config->get('drafts_mbox', 'Drafts');
+            if (!empty($drafts)
+                && !empty($meta['draft_uid'])
+                && !empty($meta['draft_folder'])
+                && $meta['draft_folder'] === $drafts
+            ) {
+                $storage->delete_message((int) $meta['draft_uid'], $drafts);
+            }
+
+            $meta['sent_saved'] = 1;
+            $meta['sent_append_pending'] = 0;
+            $meta['sent_saved_at'] = gmdate('Y-m-d H:i:s');
+            unset($meta['sent_save_error']);
+            return true;
+        } catch (Exception $e) {
+            $error = $e->getMessage();
+            return false;
+        }
+    }
+
+    private function ss_sync_pending_sent()
+    {
+        if (!$this->rc->user || empty($this->rc->user->ID)) {
+            return;
+        }
+
+        $db = $this->rc->get_dbh();
+        $table = $this->ss_queue_table();
+        $user_id = (int) $this->rc->user->ID;
+        $recent = gmdate('Y-m-d H:i:s', time() - 7 * 86400);
+        $result = $db->query(
+            "SELECT id, raw_mime, meta_json
+               FROM $table
+              WHERE user_id = ? AND status = 'sent' AND updated_at >= ?
+              ORDER BY updated_at DESC LIMIT 50",
+            $user_id,
+            $recent
+        );
+
+        while ($result && ($row = $db->fetch_assoc($result))) {
+            $meta = array();
+            if (!empty($row['meta_json'])) {
+                $decoded = json_decode($row['meta_json'], true);
+                if (is_array($decoded)) {
+                    $meta = $decoded;
+                }
+            }
+
+            if (!empty($meta['sent_saved'])) {
+                continue;
+            }
+
+            $is_pending = !empty($meta['sent_append_pending']);
+            $is_recent_unsaved = !array_key_exists('sent_saved', $meta)
+                && empty($meta['initial_saved_in']);
+            if (!$is_pending && !$is_recent_unsaved) {
+                continue;
+            }
+
+            $error = '';
+            if ($this->ss_append_to_sent($row['raw_mime'], $meta, $error)) {
+                $db->query(
+                    "UPDATE $table SET meta_json = ?, updated_at = UTC_TIMESTAMP() WHERE id = ? AND user_id = ?",
+                    json_encode($meta),
+                    (int) $row['id'],
+                    $user_id
+                );
+                $this->log('deferred Sent append completed', array('id' => (int) $row['id']));
+            } else {
+                $meta['sent_saved'] = 0;
+                $meta['sent_append_pending'] = 1;
+                $meta['sent_save_error'] = (string) $error;
+                $db->query(
+                    "UPDATE $table SET meta_json = ? WHERE id = ? AND user_id = ?",
+                    json_encode($meta),
+                    (int) $row['id'],
+                    $user_id
+                );
+                $this->log('deferred Sent append failed', array(
+                    'id' => (int) $row['id'],
+                    'error' => $error,
+                ));
+            }
+        }
+    }
+
     function init()
     {
         $this->rc = rcmail::get_instance();
@@ -721,6 +845,13 @@ class scheduled_sending extends rcube_plugin
                 $this->load_config();
             $this->action_worker();
             exit;
+        }
+
+        if (($this->rc->task === 'mail' || $this->rc->task === 'settings')
+            && $this->rc->user
+            && !empty($this->rc->user->ID)
+        ) {
+            $this->ss_sync_pending_sent();
         }
 
         // server handler
@@ -932,6 +1063,8 @@ class scheduled_sending extends rcube_plugin
             'bcc'  => rcube_utils::get_input_value('_bcc', rcube_utils::INPUT_POST),
             'subj' => rcube_utils::get_input_value('_subject', rcube_utils::INPUT_POST),
             'html' => (int) rcube_utils::get_input_value('_is_html', rcube_utils::INPUT_POST),
+            'sent_append_pending' => 1,
+            'sent_saved' => 0,
         );
 
         // DB insert (no NULL raw_mime)
@@ -1268,52 +1401,19 @@ class scheduled_sending extends rcube_plugin
 
             
             if ($ok) {
-                // Best-effort: append to Sent and remove matching Draft by Message-ID
-                try {
-                    $storage = $rc->get_storage();
-
-                    // Sent folder: prefer Roundcube's 'sent_mbox', fallback to plugin config
-                    $sentmb = $cfg->get('sent_mbox', $cfg->get('scheduled_sending_sent_folder', 'Sent'));
-                    if (!empty($sentmb)) {
-                        if (!$storage->folder_exists($sentmb)) {
-                            $storage->create_folder($sentmb, true);
-                        }
-                        $saved_sent = $storage->save_message($sentmb, $delivery_raw);
-                        if ($saved_sent
-                            && !empty($meta['initial_saved_in'])
-                            && $meta['initial_saved_in'] === 'Sent'
-                            && !empty($meta['draft_uid'])
-                        ) {
-                            $storage->delete_message((int) $meta['draft_uid'], $sentmb);
-                        }
-                    }
-
-                    // Delete the original draft by Message-ID
-                    $drafts = $cfg->get('drafts_mbox', 'Drafts');
-                    if (!empty($drafts)) {
-                        $draft_uid = null;
-                        if (isset($meta) && is_array($meta)
-                            && !empty($meta['draft_uid'])
-                            && !empty($meta['draft_folder'])
-                            && $meta['draft_folder'] === $drafts
-                        ) {
-                            $draft_uid = (int)$meta['draft_uid'];
-                        }
-                        if ($draft_uid) {
-                            $storage->delete_message($draft_uid, $drafts);
-                        } else if (!empty($msgid)) {
-                            $index = $storage->search($drafts, 'HEADER', array('Message-ID' => $msgid));
-                            if ($index && !empty($index->count)) {
-                                foreach ($index->get() as $msg) {
-                                    $storage->delete_message($msg->uid, $drafts);
-                                }
-                            }
-                        }
-                    }
-                } catch (\Exception $e) {
-                    $this->ss_debug(array('msg'=>'worker imap err','err'=>$e->getMessage()));
+                $sent_error = '';
+                if (!$this->ss_append_to_sent($delivery_raw, $meta, $sent_error)) {
+                    $meta['sent_saved'] = 0;
+                    $meta['sent_append_pending'] = 1;
+                    $meta['sent_save_error'] = $sent_error;
+                    $this->ss_debug(array('msg'=>'worker Sent append deferred','id'=>$id,'err'=>$sent_error));
                 }
-                $db->query("UPDATE $table SET status = 'sent', raw_mime = ?, updated_at = NOW() WHERE id = ?", $delivery_raw, $id);
+                $db->query(
+                    "UPDATE $table SET status = 'sent', raw_mime = ?, meta_json = ?, updated_at = NOW() WHERE id = ?",
+                    $delivery_raw,
+                    json_encode($meta),
+                    $id
+                );
                 $sent_ok++;
             }
 		else {
