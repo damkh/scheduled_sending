@@ -7,7 +7,7 @@ require_once __DIR__ . '/queue.inc.php';
  */
 class scheduled_sending extends rcube_plugin
 {
-    const PLUGIN_VERSION = '1.3.1';
+    const PLUGIN_VERSION = '1.3.2';
 
     public static function info()
     {
