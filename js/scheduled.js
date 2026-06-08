@@ -47,6 +47,16 @@ function __ss_collect_attachment_meta(target){
   } catch(_){}
 }
 
+function __ss_refresh_compose_fields(target, form){
+  try {
+    if (!target || !form) return;
+    var fresh = new FormData(form);
+    ['_id', '_from', '_to', '_cc', '_bcc', '_subject', '_is_html', '_draft_uid'].forEach(function(name) {
+      if (fresh.has(name)) target[name] = fresh.get(name);
+    });
+  } catch(_){}
+}
+
 /* scheduled.js - binds click handler only once; relies on inline fallback too */
 (function(){
   if (window.__SS_JS_BOUND) return;
@@ -187,18 +197,31 @@ try {
             form.appendChild(hidden);
           }
           var done = false;
-          var setUID = function(){
+          var setUID = function(ev){
             try {
-              var uid = (rcmail.env && (rcmail.env.compose_draft_uid || rcmail.env.draft_uid || rcmail.env.draft_id)) || null;
-              if (uid) form.querySelector('#ss-draft-uid-hidden').value = uid;
+              var uid = null;
+              if (ev && typeof ev === 'object') {
+                uid = ev.uid || ev.draft_uid || ev.id || null;
+              } else if (typeof ev === 'string' || typeof ev === 'number') {
+                uid = ev;
+              }
+              if (!uid) {
+                uid = (rcmail.env && (rcmail.env.compose_draft_uid || rcmail.env.draft_uid || rcmail.env.draft_id)) || null;
+              }
+              var hidden = form.querySelector('#ss-draft-uid-hidden');
+              if (uid && hidden) {
+                hidden.value = uid;
+                data._draft_uid = uid;
+              }
             } catch(e){}
           };
-          var onSaved = function(){
+          var onSaved = function(ev){
             if (done) return;
             done = true;
-            try { setUID(); } catch(e){}
+            try { setUID(ev); } catch(e){}
             // Continue immediately
             if (window.rcmail && typeof rcmail.http_post === 'function') {
+              __ss_refresh_compose_fields(data, form);
               __ss_collect_attachment_meta(data);
               rcmail.http_post('plugin.scheduled_sending.schedule', data);
             }
@@ -208,7 +231,7 @@ try {
           try { rcmail.addEventListener && rcmail.addEventListener('plugin.draft_saved', onSaved); } catch(e){}
           // Trigger save and set a short failsafe
           try { rcmail.command && rcmail.command('save'); } catch(e){}
-          setTimeout(function(){ if (!done) onSaved(); }, 600);
+          setTimeout(function(){ if (!done) onSaved(); }, 3000);
           return; // prevent double http_post below; onSaved will call it
         } catch(e){ /* fall through to normal path */ }
 
@@ -312,73 +335,29 @@ try {
           }catch(_){}
         }
         var ret = __orig_post.apply(rcmail, arguments);
-        if (isSched) {
-          // SS: enforce body fields on final post (prefer plain text when HTML is trivial wrappers)
-          try { if (window.tinyMCE && tinyMCE.triggerSave) tinyMCE.triggerSave(); } catch(_){}
-          try { if (window.rcmail && rcmail.editor && typeof rcmail.editor.save === 'function') rcmail.editor.save(); } catch(_){}
-          try {
-            if (data && typeof data === 'object' && (!data._message && !data._message_html)) {
-              var form = document.getElementById('composeform') || document.querySelector('form#compose-content form');
-              var html = '', text = '';
-              try {
-                if (window.tinyMCE && tinyMCE.activeEditor) {
-                  html = tinyMCE.activeEditor.getContent({format:'html'}) || '';
-                  text = tinyMCE.activeEditor.getContent({format:'text'}) || '';
-                }
-              } catch(_){}
-              if (!text && form) {
-                var ta = form.querySelector('textarea[name="_message"]');
-                if (ta) text = ta.value || '';
-              }
-              if (html && !__ss_is_plain_html(html, text)) { data._message_html = html; data._is_html = 1; }
-              else { data._message = text || ''; }
-            }
-          } catch(_){}
-
-
-          // SS: enforce body fields on final post
-          try { if (window.tinyMCE && tinyMCE.triggerSave) tinyMCE.triggerSave(); } catch(_){}
-          try { if (window.rcmail && rcmail.editor && typeof rcmail.editor.save === 'function') rcmail.editor.save(); } catch(_){}
-          try {
-            if (data && typeof data === 'object' && (!data._message && !data._message_html)) {
-              var form = document.getElementById('composeform') || document.querySelector('form#compose-content form');
-              var html = '', text = '';
-              try {
-                if (window.tinyMCE && tinyMCE.activeEditor) {
-                  html = tinyMCE.activeEditor.getContent({format:'html'}) || '';
-                  text = tinyMCE.activeEditor.getContent({format:'text'}) || '';
-                }
-              } catch(_){}
-              if (!text && form) {
-                var ta = form.querySelector('textarea[name="_message"]');
-                if (ta) text = ta.value || '';
-              }
-              if (html && html.replace(/<[^>]*>/g,'').trim() !== '') { data._message_html = html; data._is_html = 1; }
-              else if (typeof text === 'string') { data._message = text; }
-            }
-          } catch(_){}
-
-          setTimeout(function(){
-            try{
-              if (rcmail.command) {
-                rcmail.command('compose-cancel') || rcmail.command('cancel') || rcmail.command('close');
-              }
-              setTimeout(function(){
-                try{
-                  if (rcmail.list_mailbox) {
-                    rcmail.list_mailbox(rcmail.env.mailbox, rcmail.env.current_page);
-                  } else if (rcmail.command) {
-                    rcmail.command('list');
-                  }
-                }catch(_){}
-              }, 20);
-            }catch(_){}
-          }, 10);
-        }
         return ret;
       };
       // Console sanity check: rcmail.http_post.__ss_wrapped === true
       rcmail.http_post.__ss_wrapped = true;
     }
   }catch(_){}
+})();
+
+(function(){
+  try {
+    if (!window.rcmail || !rcmail.addEventListener) return;
+    rcmail.addEventListener('plugin.scheduled_sending.success', function(){
+      try {
+        if (rcmail.command) {
+          rcmail.command('compose-cancel') || rcmail.command('cancel') || rcmail.command('close');
+        }
+        setTimeout(function(){
+          try {
+            if (rcmail.list_mailbox) rcmail.list_mailbox(rcmail.env.mailbox, rcmail.env.current_page);
+            else if (rcmail.command) rcmail.command('list');
+          } catch(_){}
+        }, 20);
+      } catch(_){}
+    });
+  } catch(_){}
 })();

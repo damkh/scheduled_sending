@@ -1022,6 +1022,8 @@ class scheduled_sending extends rcube_plugin
                         }
                         if ($raw_try !== '') {
                             $draft_mime = $raw_try;
+                            $meta['draft_uid'] = $draft_uid_post;
+                            $meta['draft_folder'] = $drafts;
                             $this->ss_debug(array('msg'=>'draft_uid_used','uid'=>$draft_uid_post));
                         } else {
                             $this->ss_debug(array('msg'=>'draft_uid_empty_raw','uid'=>$draft_uid_post));
@@ -1082,9 +1084,40 @@ class scheduled_sending extends rcube_plugin
 
         }
 
+        list($queued_headers_raw,) = $this->ss_split_raw_message($raw_mime);
+        $queued_headers = $this->ss_parse_raw_headers($queued_headers_raw);
+        $queued_recipients = array();
+        foreach (array('To', 'Cc', 'Bcc') as $header_name) {
+            $queued_recipients = array_merge(
+                $queued_recipients,
+                $this->ss_extract_recipients($this->ss_header_value($queued_headers, $header_name))
+            );
+        }
+        foreach (array('to', 'cc', 'bcc') as $meta_name) {
+            if (!empty($meta[$meta_name])) {
+                $queued_recipients = array_merge(
+                    $queued_recipients,
+                    $this->ss_extract_recipients($meta[$meta_name])
+                );
+            }
+        }
+        $queued_recipients = array_values(array_unique($queued_recipients));
+        if (!count($queued_recipients)) {
+            $this->ss_debug(array(
+                'msg' => 'schedule rejected: no recipients',
+                'user_id' => $user_id,
+                'draft_uid' => isset($meta['draft_uid']) ? $meta['draft_uid'] : null,
+                'to' => isset($meta['to']) ? $meta['to'] : '',
+            ));
+            $rc->output->command('display_message', 'Unable to schedule: recipient address not found', 'error');
+            $rc->output->send();
+            return;
+        }
+
         $q  = "INSERT INTO $table (user_id, identity_id, scheduled_at, status, raw_mime, meta_json, created_at, updated_at)
                VALUES (?, ?, ?, 'queued', ?,  ?, NOW(), NOW())";
         $ok = $db->query($q, $user_id, $identity_id, $scheduled_at, $raw_mime, json_encode($meta));
+        $job_id = $ok ? (int) $db->insert_id() : 0;
         if (!$ok) {
             $db_error = '';
             foreach (array('last_error', 'error') as $method) {
@@ -1100,13 +1133,22 @@ class scheduled_sending extends rcube_plugin
             $this->ss_debug(array('msg'=>'queue insert failed','table'=>$table,'scheduled_at'=>$scheduled_at,'db_error'=>$db_error));
         }
 
-        $this->log('queue insert', array('ok'=>(bool)$ok, 'scheduled_at'=>$scheduled_at, 'framed'=>(int)$rc->output->framed, 'identity_id'=>$identity_id));
+        $this->log('queue insert', array(
+            'ok'=>(bool)$ok,
+            'id'=>$job_id,
+            'user_id'=>$user_id,
+            'scheduled_at'=>$scheduled_at,
+            'recipients'=>$queued_recipients,
+            'framed'=>(int)$rc->output->framed,
+            'identity_id'=>$identity_id,
+        ));
 
         // Friendly toast back to client
         if ($ok) {
             $this->ss_debug(array('msg'=>'schedule success','time'=>date('c')));
             $local_text = $this->ss_format_scheduled_time($scheduled_at, 'M j, Y g:i A');
             $rc->output->command('display_message', 'Scheduled for ' . $local_text, 'confirmation');
+            $rc->output->command('plugin.scheduled_sending.success');
         } else {
             $rc->output->command('display_message', 'Unable to schedule (DB)', 'error');
         }
@@ -1381,7 +1423,7 @@ class scheduled_sending extends rcube_plugin
             $user_id = $this->rc->user->ID;
 
             $sql = "SELECT id, scheduled_at, meta_json, status, created_at FROM {$table_name} ".
-                   "WHERE user_id = ? AND status NOT IN ('sent', 'cancelled') ORDER BY scheduled_at ASC";
+                   "WHERE user_id = ? AND status NOT IN ('sent', 'canceled', 'cancelled') ORDER BY scheduled_at ASC";
             $res = $db->query($sql, $user_id);
 
             while ($row = $db->fetch_assoc($res)) {
