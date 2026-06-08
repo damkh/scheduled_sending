@@ -52,7 +52,14 @@ trait scheduled_sending_queue_trait {
         $db  = $rc->get_dbh();
         $table = $this->ss_queue_table();
         $limit = 200;
-        $q = $db->query("SELECT id, user_id, identity_id, status, scheduled_at, created_at, updated_at, meta_json, last_error FROM $table WHERE status IN ('queued','processing','sending','error') ORDER BY scheduled_at ASC LIMIT $limit");
+        $user_id = (int) $rc->user->ID;
+        $q = $db->query(
+            "SELECT id, user_id, identity_id, status, scheduled_at, created_at, updated_at, meta_json, last_error
+               FROM $table
+              WHERE user_id = ? AND status IN ('queued','processing','sending','error')
+              ORDER BY scheduled_at ASC LIMIT $limit",
+            $user_id
+        );
         $rows = array();
         while ($q && ($r = $db->fetch_assoc($q))) {
             $meta = array();

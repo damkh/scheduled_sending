@@ -118,6 +118,36 @@ trait scheduled_sending_worker_trait {
         }
     }
 
+    private function ss_worker_draft_mime($meta)
+    {
+        try {
+            $rc = $this->rc ?: rcmail::get_instance();
+            $storage = $rc->get_storage();
+            $drafts = !empty($meta['draft_folder'])
+                ? $meta['draft_folder']
+                : $rc->config->get('drafts_mbox', 'Drafts');
+
+            if (!empty($meta['draft_uid']) && $drafts && $storage->folder_exists($drafts)) {
+                $uid = (int) $meta['draft_uid'];
+                if (method_exists($storage, 'get_raw_message')) {
+                    $raw = (string) $storage->get_raw_message($uid, $drafts);
+                    if ($raw !== '') return $raw;
+                }
+                if (method_exists($storage, 'get_raw_body')) {
+                    $raw = (string) $storage->get_raw_body($uid, $drafts);
+                    if ($raw !== '') return $raw;
+                }
+            }
+
+            if (!empty($meta['subj']) && method_exists($this, '_ss_try_fetch_draft_mime')) {
+                return (string) $this->_ss_try_fetch_draft_mime($meta['subj']);
+            }
+        } catch (Exception $e) {
+            $this->log('worker draft recovery failed', array('error' => $e->getMessage()));
+        }
+        return '';
+    }
+
     private function ss_extract_recipients($value)
     {
         $recipients = array();
@@ -233,6 +263,35 @@ $res = $db->query($sql);if (!$res) {
             }
 
             $rcpts_all = array_values(array_unique(array_merge($rcpts_hdr, $rcpts_meta)));
+            if (!count($rcpts_all)) {
+                $draft_raw = $this->ss_worker_draft_mime($meta);
+                if ($draft_raw !== '') {
+                    $raw = $draft_raw;
+                    list($raw_headers, $raw_body) = $this->ss_split_raw_message($raw);
+                    $headers_arr = $this->ss_parse_raw_headers($raw_headers);
+                    $env_from = $this->ss_sanitize_envelope_from($this->ss_header_value($headers_arr, 'From'));
+                    $to = $this->ss_header_value($headers_arr, 'To');
+                    $cc = $this->ss_header_value($headers_arr, 'Cc');
+                    $bcc = $this->ss_header_value($headers_arr, 'Bcc');
+                    $rcpts_hdr = array();
+                    foreach (array($to, $cc, $bcc) as $_list) {
+                        $rcpts_hdr = array_merge($rcpts_hdr, $this->ss_extract_recipients($_list));
+                    }
+                    $rcpts_all = array_values(array_unique(array_merge($rcpts_hdr, $rcpts_meta)));
+                    $this->log('worker draft recovery', array('id' => $id, 'recipients' => $rcpts_all));
+                }
+            }
+            if (!count($rcpts_all)) {
+                $this->log('worker recipients missing', array(
+                    'id' => $id,
+                    'header_names' => array_keys($headers_arr),
+                    'to' => $to,
+                    'cc' => $cc,
+                    'bcc' => $bcc,
+                    'meta_to' => isset($meta['to']) ? $meta['to'] : '',
+                    'draft_uid' => isset($meta['draft_uid']) ? $meta['draft_uid'] : null,
+                ));
+            }
 
             // Date must represent the actual delivery attempt, not compose time.
             $this->ss_set_header_value($headers_arr, 'Date', $this->ss_actual_date_header());
