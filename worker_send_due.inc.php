@@ -77,6 +77,47 @@ trait scheduled_sending_worker_trait {
         return '';
     }
 
+    private function ss_set_header_value(&$headers, $name, $value)
+    {
+        foreach ($headers as $k => $v) {
+            if (strcasecmp($k, $name) === 0) {
+                $headers[$k] = $value;
+                return;
+            }
+        }
+        $headers[$name] = $value;
+    }
+
+    private function ss_remove_header(&$headers, $name)
+    {
+        foreach (array_keys($headers) as $k) {
+            if (strcasecmp($k, $name) === 0) {
+                unset($headers[$k]);
+            }
+        }
+    }
+
+    private function ss_rebuild_raw_message($headers, $body)
+    {
+        $lines = array();
+        foreach ((array) $headers as $name => $value) {
+            $lines[] = $name . ': ' . $value;
+        }
+        return implode("\r\n", $lines) . "\r\n\r\n" . (string) $body;
+    }
+
+    private function ss_actual_date_header()
+    {
+        try {
+            $timezone = method_exists($this, 'ss_timezone')
+                ? $this->ss_timezone()
+                : new DateTimeZone('UTC');
+            return (new DateTimeImmutable('now', $timezone))->format('r');
+        } catch (Exception $e) {
+            return gmdate('D, d M Y H:i:s') . ' +0000';
+        }
+    }
+
     private function ss_extract_recipients($value)
     {
         $recipients = array();
@@ -193,19 +234,19 @@ $res = $db->query($sql);if (!$res) {
 
             $rcpts_all = array_values(array_unique(array_merge($rcpts_hdr, $rcpts_meta)));
 
-            // Ensure required headers
-            if (empty($headers_arr['Date'])) {
-                $headers_arr['Date'] = gmdate('D, d M Y H:i:s').' +0000';
-                $headers_arr['X-SS-Patched-Date'] = '1';
-            }
-            if (empty($headers_arr['Message-ID']) && !empty($env_from)) {
+            // Date must represent the actual delivery attempt, not compose time.
+            $this->ss_set_header_value($headers_arr, 'Date', $this->ss_actual_date_header());
+            $this->ss_remove_header($headers_arr, 'X-SS-Patched-Date');
+
+            if ($this->ss_header_value($headers_arr, 'Message-ID') === '' && !empty($env_from)) {
                 $dom = substr(strrchr($env_from, '@'), 1);
                 if (!$dom) $dom = 'localhost';
                 $headers_arr['Message-ID'] = '<ss-'.bin2hex(random_bytes(8)).'@'.$dom.'>';
             }
 
             // Remove Bcc header for on-the-wire message
-            if (isset($headers_arr['Bcc'])) unset($headers_arr['Bcc']);
+            $this->ss_remove_header($headers_arr, 'Bcc');
+            $delivery_raw = $this->ss_rebuild_raw_message($headers_arr, $raw_body);
 
             $ok = false;
             $err = '';
@@ -222,7 +263,7 @@ $res = $db->query($sql);if (!$res) {
                             $ok = $smtp->send_mail($env_from, $rcpts_all, $headers_arr, $raw_body);
                         }
                     } elseif (method_exists($smtp, 'send_message')) {
-                        $ok = $smtp->send_message($env_from, $rcpts_all, $raw);
+                        $ok = $smtp->send_message($env_from, $rcpts_all, $delivery_raw);
                     } else {
                         $ok = false;
                         $err = 'rcube_smtp: no send_* method';
@@ -289,13 +330,24 @@ $res = $db->query($sql);if (!$res) {
                         if (!$storage->folder_exists($sentmb)) {
                             $storage->create_folder($sentmb, true);
                         }
-                        $storage->save_message($sentmb, $raw);
+                        $saved_sent = $storage->save_message($sentmb, $delivery_raw);
+                        if ($saved_sent
+                            && !empty($meta['initial_saved_in'])
+                            && $meta['initial_saved_in'] === 'Sent'
+                            && !empty($meta['draft_uid'])
+                        ) {
+                            $storage->delete_message((int) $meta['draft_uid'], $sentmb);
+                        }
                     }
                     $drafts = $cfg->get('drafts_mbox', 'Drafts');
                     if (!empty($drafts)) {
                         // Prefer direct UID if captured when draft was saved
                         $draft_uid = null;
-                        if (isset($meta) && is_array($meta) && !empty($meta['draft_uid'])) {
+                        if (isset($meta) && is_array($meta)
+                            && !empty($meta['draft_uid'])
+                            && !empty($meta['draft_folder'])
+                            && $meta['draft_folder'] === $drafts
+                        ) {
                             $draft_uid = (int)$meta['draft_uid'];
                         }
                         if ($draft_uid) {
@@ -306,7 +358,7 @@ $res = $db->query($sql);if (!$res) {
                             if (isset($headers_arr['Message-ID'])) $msgid = $headers_arr['Message-ID'];
                             if (!$msgid) {
                                 // parse from raw headers if needed
-                                if (preg_match('/^Message-ID:\s*(.+)$/mi', $raw, $mm)) { $msgid = trim($mm[1]); }
+                                if (preg_match('/^Message-ID:\s*(.+)$/mi', $delivery_raw, $mm)) { $msgid = trim($mm[1]); }
                             }
                             if ($msgid) {
                                 $index = $storage->search($drafts, 'HEADER', array('Message-ID' => $msgid));
@@ -322,7 +374,7 @@ $res = $db->query($sql);if (!$res) {
                     ss_debug(array('msg'=>'imap post-send', 'err'=>$e->getMessage()));
                 }
 
-                $db->query("UPDATE $table SET status='sent', last_error=NULL, updated_at=UTC_TIMESTAMP() WHERE id=?", $id);
+                $db->query("UPDATE $table SET status='sent', raw_mime=?, last_error=NULL, updated_at=UTC_TIMESTAMP() WHERE id=?", $delivery_raw, $id);
                 $this->log('worker sent', array('id'=>$id)); $sent_ok++;
             } else {
                 $err = (string)$err; if ($err === '') { $err = 'unknown failure'; }
