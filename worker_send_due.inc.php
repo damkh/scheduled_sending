@@ -379,61 +379,20 @@ $res = $db->query($sql);if (!$res) {
             }
 
             $processed++; if ($ok) {
-
-
-                // IMAP append to Sent and remove Drafts copy
-                try {
-                    $storage = $rc->get_storage();
-                    $sentmb  = $cfg->get('sent_mbox', $cfg->get('scheduled_sending_sent_folder', 'Sent'));
-                    if (!empty($sentmb)) {
-                        if (!$storage->folder_exists($sentmb)) {
-                            $storage->create_folder($sentmb, true);
-                        }
-                        $saved_sent = $storage->save_message($sentmb, $delivery_raw);
-                        if ($saved_sent
-                            && !empty($meta['initial_saved_in'])
-                            && $meta['initial_saved_in'] === 'Sent'
-                            && !empty($meta['draft_uid'])
-                        ) {
-                            $storage->delete_message((int) $meta['draft_uid'], $sentmb);
-                        }
-                    }
-                    $drafts = $cfg->get('drafts_mbox', 'Drafts');
-                    if (!empty($drafts)) {
-                        // Prefer direct UID if captured when draft was saved
-                        $draft_uid = null;
-                        if (isset($meta) && is_array($meta)
-                            && !empty($meta['draft_uid'])
-                            && !empty($meta['draft_folder'])
-                            && $meta['draft_folder'] === $drafts
-                        ) {
-                            $draft_uid = (int)$meta['draft_uid'];
-                        }
-                        if ($draft_uid) {
-                            $storage->delete_message($draft_uid, $drafts);
-                        } else {
-                            // Fallback: search by Message-ID header
-                            $msgid = '';
-                            if (isset($headers_arr['Message-ID'])) $msgid = $headers_arr['Message-ID'];
-                            if (!$msgid) {
-                                // parse from raw headers if needed
-                                if (preg_match('/^Message-ID:\s*(.+)$/mi', $delivery_raw, $mm)) { $msgid = trim($mm[1]); }
-                            }
-                            if ($msgid) {
-                                $index = $storage->search($drafts, 'HEADER', array('Message-ID' => $msgid));
-                                if ($index && !empty($index->count)) {
-                                    foreach ($index->get() as $msg) {
-                                        $storage->delete_message($msg->uid, $drafts);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (\Exception $e) {
-                    ss_debug(array('msg'=>'imap post-send', 'err'=>$e->getMessage()));
+                $sent_error = '';
+                if (!$this->ss_append_to_sent($delivery_raw, $meta, $sent_error)) {
+                    $meta['sent_saved'] = 0;
+                    $meta['sent_append_pending'] = 1;
+                    $meta['sent_save_error'] = $sent_error;
+                    ss_debug(array('msg'=>'worker Sent append deferred','id'=>$id,'err'=>$sent_error));
                 }
 
-                $db->query("UPDATE $table SET status='sent', raw_mime=?, last_error=NULL, updated_at=UTC_TIMESTAMP() WHERE id=?", $delivery_raw, $id);
+                $db->query(
+                    "UPDATE $table SET status='sent', raw_mime=?, meta_json=?, last_error=NULL, updated_at=UTC_TIMESTAMP() WHERE id=?",
+                    $delivery_raw,
+                    json_encode($meta),
+                    $id
+                );
                 $this->log('worker sent', array('id'=>$id)); $sent_ok++;
             } else {
                 $err = (string)$err; if ($err === '') { $err = 'unknown failure'; }
