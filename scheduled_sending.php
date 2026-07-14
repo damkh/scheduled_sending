@@ -816,6 +816,7 @@ class scheduled_sending extends rcube_plugin
         $this->register_action('plugin.scheduled_sending.queue_cancel', array($this, 'action_queue_cancel'));
         $this->register_action('plugin.scheduled_sending.queue_delete', array($this, 'action_queue_delete'));
         $this->register_action('plugin.scheduled_sending.queue_reschedule', array($this, 'action_queue_reschedule'));
+        $this->register_action('plugin.scheduled_sending.queue_preview', array($this, 'action_queue_preview'));
 
         // Add hook for preferences sections
         if ($this->rc->task == 'settings') {
@@ -1505,7 +1506,7 @@ class scheduled_sending extends rcube_plugin
             $this->rc->output->include_script('list.js');
             $table = new html_table(array(
                 'width' => '75%',
-                'cols'  => 8,
+                'cols'  => 9,
                 'class' => 'scheduled-messages-table',
                 'id'    => 'scheduled-messages-table',
             ));
@@ -1516,6 +1517,7 @@ class scheduled_sending extends rcube_plugin
             $table->add_header(array('width' => '28%', 'align' => 'left', 'class' => 'to'), $this->gettext('to'));
             $table->add_header(array('width' => '8%',  'align' => 'left', 'class' => 'status'), $this->gettext('status'));
             $table->add_header(array('width' => '15%', 'align' => 'left', 'class' => 'created_at'), $this->gettext('created_at'));
+            $table->add_header(array('width' => '4%',  'align' => 'left', 'class' => 'preview'), $this->gettext('preview'));
             $table->add_header(array('width' => '4%',  'align' => 'left', 'class' => 'edit'), $this->gettext('edit'));
             $table->add_header(array('width' => '6%',  'align' => 'left', 'class' => 'delete'), $this->gettext('delete'));
 
@@ -1564,8 +1566,10 @@ class scheduled_sending extends rcube_plugin
                                . '</a>';
 
                 $scheduled_local = $this->ss_format_scheduled_time($row['scheduled_at']);
+                $preview_button = '<a href="#" class="preview-scheduled-message" data-id="' . rcube::Q($row['id']) . '">' . rcube::Q($this->gettext('preview')) . '</a>';
                 $edit_button = '<a href="#" class="edit-scheduled-message" data-id="' . rcube::Q($row['id']) . '" data-ts="' . $scheduled_ts . '" data-local="' . rcube::Q($scheduled_local) . '">' . rcube::Q($this->gettext('edit')) . '</a>';
 
+                $table->add(array('class' => 'preview'), $preview_button);
                 $table->add(array('class' => 'edit'), $edit_button);
                 $table->add(array('class' => 'delete'), $delete_button);
             }
