@@ -129,12 +129,8 @@ trait scheduled_sending_worker_trait {
 
             if (!empty($meta['draft_uid']) && $drafts && $storage->folder_exists($drafts)) {
                 $uid = (int) $meta['draft_uid'];
-                if (method_exists($storage, 'get_raw_message')) {
-                    $raw = (string) $storage->get_raw_message($uid, $drafts);
-                    if ($raw !== '') return $raw;
-                }
-                if (method_exists($storage, 'get_raw_body')) {
-                    $raw = (string) $storage->get_raw_body($uid, $drafts);
+                if (method_exists($this, '_ss_fetch_raw_message')) {
+                    $raw = (string) $this->_ss_fetch_raw_message($storage, $uid, $drafts);
                     if ($raw !== '') return $raw;
                 }
             }
@@ -142,7 +138,7 @@ trait scheduled_sending_worker_trait {
             if (!empty($meta['subj']) && method_exists($this, '_ss_try_fetch_draft_mime')) {
                 return (string) $this->_ss_try_fetch_draft_mime($meta['subj']);
             }
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             $this->log('worker draft recovery failed', array('error' => $e->getMessage()));
         }
         return '';
