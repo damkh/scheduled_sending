@@ -91,6 +91,41 @@ class scheduled_sending extends rcube_plugin
      * matching the current Subject and most recent date.
      * Returns string MIME on success, or empty string on failure.
      */
+    private function _ss_fetch_raw_message($storage, $uid, $folder)
+    {
+        $uid = (int) $uid;
+        if (!$storage || $uid <= 0) return '';
+
+        try {
+            if ($folder && method_exists($storage, 'set_folder')) {
+                $storage->set_folder($folder);
+            }
+
+            if (method_exists($storage, 'get_raw_message')) {
+                $raw = (string) $storage->get_raw_message($uid);
+                if ($raw !== '') return $raw;
+            }
+
+            if (method_exists($storage, 'get_raw_body')) {
+                $raw = (string) $storage->get_raw_body($uid);
+                if ($raw !== '') return $raw;
+            }
+
+            if (method_exists($storage, 'get_message')) {
+                $msgobj = $storage->get_message($uid);
+                if ($msgobj && isset($msgobj->headers->raw) && isset($msgobj->body)) {
+                    return (string)$msgobj->headers->raw . "\r\n\r\n" . (string)$msgobj->body;
+                }
+                if ($msgobj && !empty($msgobj->body)) {
+                    return (string)$msgobj->body;
+                }
+            }
+        } catch (Throwable $e) {
+            $this->ss_debug(array('msg'=>'raw_message_fetch_failed','uid'=>$uid,'folder'=>$folder,'err'=>$e->getMessage()));
+        }
+
+        return '';
+    }
     
     /** 
      * Try to fetch the full raw MIME (with attachments) from the Drafts folder.
@@ -143,22 +178,7 @@ class scheduled_sending extends rcube_plugin
                 return '';
             }
 
-            // Pull raw source (prefer get_raw_message)
-            $raw = '';
-            if (method_exists($storage, 'get_raw_message')) {
-                try { $raw = (string)$storage->get_raw_message($uid_candidate, $drafts); } catch (\Exception $e) { $raw = ''; }
-            }
-            if ($raw === '' && method_exists($storage, 'get_raw_body')) {
-                try { $raw = (string)$storage->get_raw_body($uid_candidate, $drafts); } catch (\Exception $e) { $raw = ''; }
-            }
-            if ($raw === '') {
-                $msgobj = $storage->get_message($uid_candidate, $drafts);
-                if ($msgobj && isset($msgobj->headers->raw) && isset($msgobj->body)) {
-                    $raw = (string)$msgobj->headers->raw . "\r\n\r\n" . (string)$msgobj->body;
-                } elseif ($msgobj && !empty($msgobj->body)) {
-                    $raw = (string)$msgobj->body;
-                }
-            }
+            $raw = $this->_ss_fetch_raw_message($storage, $uid_candidate, $drafts);
 
             if ($raw === '') {
                 $this->ss_debug(array('msg'=>'_ss_try_fetch_draft_mime empty_raw','uid'=>$uid_candidate,'via'=>$picked_via));
@@ -173,7 +193,7 @@ class scheduled_sending extends rcube_plugin
             if (!$has_mime) return '';
             // Don't *require* multipart — user might send no attachments — but prefer it
             return $raw;
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             $this->ss_debug(array('msg'=>'_ss_try_fetch_draft_mime fail','err'=>$e->getMessage()));
             return '';
         }
@@ -1148,13 +1168,7 @@ class scheduled_sending extends rcube_plugin
                     $storage = $rc->get_storage();
                     $drafts = $rc->config->get('drafts_mbox', 'Drafts');
                     if ($drafts && $storage->folder_exists($drafts)) {
-                        $raw_try = '';
-                        if (method_exists($storage, 'get_raw_message')) {
-                            $raw_try = (string)$storage->get_raw_message($draft_uid_post, $drafts);
-                        }
-                        if ($raw_try === '' && method_exists($storage, 'get_raw_body')) {
-                            $raw_try = (string)$storage->get_raw_body($draft_uid_post, $drafts);
-                        }
+                        $raw_try = $this->_ss_fetch_raw_message($storage, $draft_uid_post, $drafts);
                         if ($raw_try !== '') {
                             $draft_mime = $raw_try;
                             $meta['draft_uid'] = $draft_uid_post;
@@ -1164,7 +1178,7 @@ class scheduled_sending extends rcube_plugin
                             $this->ss_debug(array('msg'=>'draft_uid_empty_raw','uid'=>$draft_uid_post));
                         }
                     }
-                } catch (Exception $e) {
+                } catch (Throwable $e) {
                     $this->ss_debug(array('msg'=>'draft_uid_fetch_err','err'=>$e->getMessage()));
                 }
             }
