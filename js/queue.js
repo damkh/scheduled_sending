@@ -15,6 +15,112 @@
     return (rcmail.gettext ? rcmail.gettext(key, 'scheduled_sending') : key);
   }
 
+  function ensureTaskbarStyle() {
+    if (document.getElementById('ss-taskbar-style')) return;
+
+    var style = document.createElement('style');
+    style.id = 'ss-taskbar-style';
+    style.textContent =
+      '#ss-taskbar-button{position:relative}' +
+      '#ss-taskbar-button .ss-taskbar-badge{position:absolute;top:2px;right:2px;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#d93025;color:#fff;font:bold 10px/16px Arial,sans-serif;text-align:center;box-shadow:0 0 0 1px rgba(255,255,255,.85);box-sizing:border-box}' +
+      '#ss-taskbar-button .ss-taskbar-badge:empty{display:none}' +
+      '#ss-taskbar-button .ss-taskbar-label{pointer-events:none}' +
+      '#ss-taskbar-button.ss-taskbar-plain{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:4px 8px;text-decoration:none}' +
+      '#ss-taskbar-button.ss-taskbar-plain:before{content:"\\23F0";font-size:16px;line-height:1}' +
+      '#ss-taskbar-button.ss-taskbar-plain .ss-taskbar-badge{position:static;display:inline-block;margin-left:2px}' +
+      '#ss-taskbar-button.ss-taskbar-plain .ss-taskbar-badge:empty{display:none}';
+    document.head.appendChild(style);
+  }
+
+  function taskUrl() {
+    return './?_task=mail&_action=plugin.scheduled_sending.queue';
+  }
+
+  function findTaskLink(task) {
+    var selectors = [
+      '#taskbar a.button-' + task,
+      '#taskbar a[href*="_task=' + task + '"]',
+      '#taskbar a[onclick*="_task=' + task + '"]',
+      '#taskmenu a.button-' + task,
+      '#taskmenu a[href*="_task=' + task + '"]',
+      '#taskmenu a[onclick*="_task=' + task + '"]',
+      'a.button-' + task + '[href*="_task=' + task + '"]',
+      'a[href*="_task=' + task + '"].button-' + task
+    ];
+
+    for (var i = 0; i < selectors.length; i++) {
+      var node = document.querySelector(selectors[i]);
+      if (node) return node;
+    }
+
+    return null;
+  }
+
+  function createTaskbarButton(reference) {
+    var refItem = reference && reference.parentNode && reference.parentNode.tagName &&
+      reference.parentNode.tagName.toLowerCase() === 'li' ? reference.parentNode : null;
+    var item = refItem ? document.createElement('li') : null;
+    var link = document.createElement('a');
+
+    link.id = 'ss-taskbar-button';
+    link.href = taskUrl();
+    link.className = 'ss-taskbar-plain button-scheduled_sending';
+    link.setAttribute('title', text('scheduled_nav'));
+    link.setAttribute('aria-label', text('scheduled_nav'));
+    link.innerHTML = '<span class="ss-taskbar-label">' + esc(text('scheduled_nav')) + '</span><span class="ss-taskbar-badge"></span>';
+    link.addEventListener('click', function(ev) {
+      ev.preventDefault();
+      if (rcmail.goto_url) rcmail.goto_url('_task=mail&_action=plugin.scheduled_sending.queue');
+      else window.location.href = taskUrl();
+    });
+
+    if (item) {
+      item.id = 'ss-taskbar-item';
+      item.className = (refItem.className || '').replace(/\b(selected|active|focused)\b/g, '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+      item.appendChild(link);
+      return item;
+    }
+
+    return link;
+  }
+
+  function ensureTaskbarButton() {
+    if (document.getElementById('ss-taskbar-button')) return;
+    ensureTaskbarStyle();
+
+    var settings = findTaskLink('settings');
+    var contacts = findTaskLink('addressbook') || findTaskLink('contacts');
+    var reference = settings || contacts;
+    if (!reference || !reference.parentNode) return;
+
+    var buttonNode = createTaskbarButton(reference);
+    var targetNode = reference.parentNode && reference.parentNode.tagName &&
+      reference.parentNode.tagName.toLowerCase() === 'li' ? reference.parentNode : reference;
+
+    if (settings) {
+      targetNode.parentNode.insertBefore(buttonNode, targetNode);
+    } else {
+      targetNode.parentNode.insertBefore(buttonNode, targetNode.nextSibling);
+    }
+  }
+
+  function requestQueueCount() {
+    if (!window.rcmail || !rcmail.http_post) return;
+    try {
+      rcmail.http_post('plugin.scheduled_sending.queue_count', {});
+    } catch(e) {}
+  }
+
+  function updateQueueBadge(payload) {
+    var badge = document.querySelector('#ss-taskbar-button .ss-taskbar-badge');
+    if (!badge) return;
+
+    var count = payload && typeof payload.count !== 'undefined' ? parseInt(payload.count, 10) : 0;
+    if (!isFinite(count) || count < 0) count = 0;
+    badge.textContent = count > 0 ? (count > 99 ? '99+' : String(count)) : '';
+    badge.setAttribute('aria-label', count + ' ' + text('scheduledmessages'));
+  }
+
   function ensurePreviewModal() {
     if (!document.getElementById('ss-preview-style')) {
       var style = document.createElement('style');
@@ -113,9 +219,17 @@
   }
 
   rcmail.addEventListener('plugin.scheduled_sending.preview_data', showPreview);
+  rcmail.addEventListener('plugin.scheduled_sending.queue_count', updateQueueBadge);
+  rcmail.addEventListener('plugin.scheduled_sending.success', function() {
+    setTimeout(requestQueueCount, 500);
+  });
 
   // Command to open queue page
   rcmail.addEventListener('init', function() {
+    ensureTaskbarButton();
+    setTimeout(ensureTaskbarButton, 250);
+    requestQueueCount();
+
     rcmail.register_command('plugin.scheduled_sending.open_queue', function() {
       rcmail.goto_url('_task=mail&_action=plugin.scheduled_sending.queue');
     }, true);
@@ -175,11 +289,13 @@
           rcmail.http_post('plugin.scheduled_sending.queue_cancel', {id:id}, rcmail.set_busy(true, 'loading'));
           // refresh after short delay
           setTimeout(function(){ rcmail.http_post('plugin.scheduled_sending.queue_list', {}); }, 400);
+          setTimeout(requestQueueCount, 450);
         } else if (t.classList.contains('ssq-bump10')) {
           // Add 10 minutes from now
           var ts = Math.floor(Date.now()/1000) + 600;
           rcmail.http_post('plugin.scheduled_sending.queue_reschedule', {id:id, at_ts: ts}, rcmail.set_busy(true, 'loading'));
           setTimeout(function(){ rcmail.http_post('plugin.scheduled_sending.queue_list', {}); }, 400);
+          setTimeout(requestQueueCount, 450);
         }
       };
     } catch(e) {

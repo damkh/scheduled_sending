@@ -8,6 +8,7 @@ $labels['schedulefail'] = 'Unable to schedule';
 $labels['invaliddatetime'] = 'Invalid date/time';
 $labels['scheduledmessages'] = 'Scheduled Messages';
 $labels['scheduledsending'] = 'Scheduled Sending';
+$labels['scheduled_nav'] = 'Scheduled';
 $labels['sendat'] = 'Send at';
 $labels['sendlater'] = 'Send later';
 $labels['id'] = 'ID';

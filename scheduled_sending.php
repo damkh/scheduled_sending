@@ -82,7 +82,7 @@ class scheduled_sending extends rcube_plugin
     }
 
     use scheduled_sending_worker_trait, scheduled_sending_queue_trait;
-    public $task = 'login|mail|settings';
+    public $task = 'login|mail|settings|addressbook';
     private $rc;
     private $logname = 'scheduled_sending';
     
@@ -837,13 +837,14 @@ class scheduled_sending extends rcube_plugin
         $this->register_action('plugin.scheduled_sending.queue_delete', array($this, 'action_queue_delete'));
         $this->register_action('plugin.scheduled_sending.queue_reschedule', array($this, 'action_queue_reschedule'));
         $this->register_action('plugin.scheduled_sending.queue_preview', array($this, 'action_queue_preview'));
+        $this->register_action('plugin.scheduled_sending.queue_count', array($this, 'action_queue_count'));
 
         // Add hook for preferences sections
         if ($this->rc->task == 'settings') {
             $this->add_hook('preferences_sections_list', array($this, 'preferences_sections_list'));
             $this->add_hook('preferences_list', array($this, 'preferences_list'));
         // Client command to open queue
-        } else if ($this->rc->task == 'mail') {
+        } else if ($this->rc->task == 'mail' || $this->rc->task == 'addressbook') {
             $this->include_script('js/queue.js');
         }
 
@@ -884,6 +885,9 @@ class scheduled_sending extends rcube_plugin
 
         // assets
         $skin = $this->rc->config->get('skin', 'larry');
+        if ($this->rc->task == 'settings') {
+            $this->include_script('js/queue.js');
+        }
         $this->include_script('js/scheduled.js');
         $this->include_stylesheet($this->local_skin_path() . '/scheduled.css');
     }

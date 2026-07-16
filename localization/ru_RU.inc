@@ -8,6 +8,7 @@ $labels['schedulefail'] = 'Невозможно составить распис�
 $labels['invaliddatetime'] = 'Неверная дата/время';
 $labels['scheduledmessages'] = 'Запланированные сообщения';
 $labels['scheduledsending'] = 'Отправка по расписанию';
+$labels['scheduled_nav'] = 'Запланированные';
 $labels['id'] = 'ID';
 $labels['scheduled_at'] = 'Запланировано на';
 $labels['subject'] = 'Тема';

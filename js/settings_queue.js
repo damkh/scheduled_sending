@@ -145,6 +145,9 @@
           { _id: id, _token: rcmail.env.request_token },
           rcmail.set_busy(true, 'loading')
         );
+        setTimeout(function() {
+          rcmail.http_post('plugin.scheduled_sending.queue_count', {});
+        }, 400);
 
         // Optimistically remove the row
         var row = this.closest('tr');
@@ -204,6 +207,9 @@
           { id: id, at_ts: newTs, _token: rcmail.env.request_token },
           rcmail.set_busy(true, 'loading')
         );
+        setTimeout(function() {
+          rcmail.http_post('plugin.scheduled_sending.queue_count', {});
+        }, 400);
 
         // Show a localized toast immediately; server will also send one
         try {
