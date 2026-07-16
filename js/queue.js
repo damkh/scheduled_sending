@@ -32,20 +32,14 @@
   }
 
   function taskUrl() {
-    return './?_task=settings&_action=preferences&_section=scheduled_sending';
+    return './?_task=settings&_action=preferences&_ss_section=scheduled_sending';
   }
 
-  function iconUrl() {
-    if (rcmail.env && rcmail.env.scheduled_sending_icon) {
-      return rcmail.env.scheduled_sending_icon;
-    }
-
-    var script = document.querySelector('script[src*="/plugins/scheduled_sending/js/queue.js"],script[src*="plugins/scheduled_sending/js/queue.js"]');
-    if (script && script.src) {
-      return script.src.replace(/js\/queue\.js(?:\?.*)?$/, 'skins/elastic/images/scheduled_sending.svg');
-    }
-
-    return 'plugins/scheduled_sending/skins/elastic/images/scheduled_sending.svg';
+  function inlineIcon() {
+    return '<svg class="ss-taskbar-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+      '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>' +
+      '<path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '</svg>';
   }
 
   function findTaskLink(task) {
@@ -79,7 +73,7 @@
     link.className = 'ss-taskbar-plain button-scheduled_sending';
     link.setAttribute('title', text('scheduled_nav'));
     link.setAttribute('aria-label', text('scheduled_nav'));
-    link.innerHTML = '<img class="ss-taskbar-icon" src="' + esc(iconUrl()) + '" alt="" aria-hidden="true"><span class="ss-taskbar-label">' + esc(text('scheduled_nav')) + '</span><span class="ss-taskbar-badge"></span>';
+    link.innerHTML = inlineIcon() + '<span class="ss-taskbar-label">' + esc(text('scheduled_nav')) + '</span><span class="ss-taskbar-badge"></span>';
     link.addEventListener('click', function(ev) {
       ev.preventDefault();
       window.location.href = taskUrl();
@@ -97,6 +91,7 @@
 
   function ensureTaskbarButton() {
     if (document.getElementById('ss-taskbar-button')) return;
+    if (rcmail.env && rcmail.env.task === 'settings') return;
     ensureTaskbarStyle();
 
     var settings = findTaskLink('settings');
@@ -113,6 +108,41 @@
     } else {
       targetNode.parentNode.insertBefore(buttonNode, targetNode.nextSibling);
     }
+  }
+
+  function requestedSettingsSection() {
+    var query = window.location.search || '';
+    var match = query.match(/[?&]_ss_section=([^&]+)/);
+    return match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : '';
+  }
+
+  function activateSettingsSection() {
+    var section = requestedSettingsSection();
+    if (!section || !rcmail.env || rcmail.env.task !== 'settings') return;
+
+    var row = document.getElementById('rcmrow' + section) ||
+      document.querySelector('[data-id="' + section + '"], [rel="' + section + '"], a[href*="_section=' + section + '"]');
+    if (row) {
+      try {
+        row.click();
+        return;
+      } catch(e) {}
+    }
+
+    try {
+      if (rcmail.sections_list && rcmail.sections_list.select && rcmail.section_select) {
+        rcmail.sections_list.select(section);
+        rcmail.section_select(rcmail.sections_list);
+        return;
+      }
+    } catch(e) {}
+
+    try {
+      var frameName = rcmail.env.contentframe || 'preferences-frame';
+      var frame = window.frames && window.frames[frameName] ? window.frames[frameName] : null;
+      var url = (rcmail.env.comm_path || './?_task=settings') + '&_action=edit-prefs&_section=' + encodeURIComponent(section) + '&_framed=1';
+      if (frame) frame.location.href = url;
+    } catch(e) {}
   }
 
   function requestQueueCount() {
@@ -239,6 +269,8 @@
   rcmail.addEventListener('init', function() {
     ensureTaskbarButton();
     setTimeout(ensureTaskbarButton, 250);
+    activateSettingsSection();
+    setTimeout(activateSettingsSection, 300);
     requestQueueCount();
 
     rcmail.register_command('plugin.scheduled_sending.open_queue', function() {
