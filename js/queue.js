@@ -21,14 +21,14 @@
     var style = document.createElement('style');
     style.id = 'ss-taskbar-style';
     style.textContent =
-      '#ss-taskbar-item{height:96px;min-height:96px;max-height:96px;overflow:visible}' +
-      '#ss-taskbar-button{position:relative;box-sizing:border-box}' +
-      '#ss-taskbar-button .ss-taskbar-main{display:flex;align-items:center;justify-content:center;gap:10px;width:100%}' +
-      '#ss-taskbar-button .ss-taskbar-icon{display:block;width:30px;height:30px;object-fit:contain;flex:0 0 30px}' +
-      '#ss-taskbar-button .ss-taskbar-badge{display:inline-block;min-width:30px;width:30px;height:30px;padding:0;border-radius:50%;background:#6f7f83;color:#fff;font:bold 14px/30px Arial,sans-serif;text-align:center;box-shadow:0 0 0 2px rgba(24,35,38,.95);box-sizing:border-box;flex:0 0 30px}' +
-      '#ss-taskbar-button .ss-taskbar-label{display:block;max-width:100%;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:18px;line-height:1.1;pointer-events:none}' +
-      '#ss-taskbar-button.ss-taskbar-plain{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:96px;padding:7px 4px;text-align:center;text-decoration:none;line-height:1.15}' +
-      '#ss-taskbar-button.ss-taskbar-plain:hover{text-decoration:none}';
+      '#ss-taskbar-item{height:76px!important;min-height:76px!important;max-height:76px!important;overflow:visible!important}' +
+      '#ss-taskbar-button{position:relative!important;box-sizing:border-box!important}' +
+      '#ss-taskbar-button .ss-taskbar-main{display:flex!important;align-items:center!important;justify-content:center!important;gap:7px!important;width:100%!important}' +
+      '#ss-taskbar-button .ss-taskbar-icon{display:block!important;width:22px!important;height:22px!important;object-fit:contain!important;flex:0 0 22px!important}' +
+      '#ss-taskbar-button .ss-taskbar-badge{display:inline-block!important;min-width:22px!important;width:22px!important;height:22px!important;padding:0!important;border-radius:50%!important;background:#6f7f83!important;color:#fff!important;font:bold 12px/22px Arial,sans-serif!important;text-align:center!important;box-shadow:0 0 0 2px rgba(24,35,38,.95)!important;box-sizing:border-box!important;flex:0 0 22px!important}' +
+      '#ss-taskbar-button .ss-taskbar-label{display:block!important;max-width:100%!important;margin-top:5px!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;font-size:13px!important;line-height:1.1!important;pointer-events:none!important}' +
+      '#ss-taskbar-button.ss-taskbar-plain{display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;width:100%!important;height:76px!important;padding:6px 3px!important;text-align:center!important;text-decoration:none!important;line-height:1.15!important}' +
+      '#ss-taskbar-button.ss-taskbar-plain:hover{text-decoration:none!important}';
     document.head.appendChild(style);
   }
 
@@ -50,9 +50,7 @@
       '#taskbar a[onclick*="_task=' + task + '"]',
       '#taskmenu a.button-' + task,
       '#taskmenu a[href*="_task=' + task + '"]',
-      '#taskmenu a[onclick*="_task=' + task + '"]',
-      'a.button-' + task + '[href*="_task=' + task + '"]',
-      'a[href*="_task=' + task + '"].button-' + task
+      '#taskmenu a[onclick*="_task=' + task + '"]'
     ];
 
     for (var i = 0; i < selectors.length; i++) {
@@ -104,9 +102,24 @@
     var targetNode = reference.parentNode && reference.parentNode.tagName &&
       reference.parentNode.tagName.toLowerCase() === 'li' ? reference.parentNode : reference;
 
-    if (buttonNode.parentNode !== targetNode.parentNode || buttonNode.previousSibling !== targetNode) {
+    if (buttonNode.parentNode !== targetNode.parentNode || buttonNode.previousElementSibling !== targetNode) {
       targetNode.parentNode.insertBefore(buttonNode, targetNode.nextSibling);
     }
+  }
+
+  function watchTaskbarPosition() {
+    if (window.__ssTaskbarObserver) return;
+
+    var settings = findTaskLink('settings');
+    var targetNode = settings && settings.parentNode && settings.parentNode.tagName &&
+      settings.parentNode.tagName.toLowerCase() === 'li' ? settings.parentNode : settings;
+    var parent = targetNode && targetNode.parentNode;
+    if (!parent || !window.MutationObserver) return;
+
+    window.__ssTaskbarObserver = new MutationObserver(function() {
+      setTimeout(ensureTaskbarButton, 0);
+    });
+    window.__ssTaskbarObserver.observe(parent, {childList: true});
   }
 
   function requestedSettingsSection() {
@@ -294,6 +307,7 @@
   // Command to open queue page
   rcmail.addEventListener('init', function() {
     ensureTaskbarButton();
+    watchTaskbarPosition();
     setTimeout(ensureTaskbarButton, 250);
     setTimeout(ensureTaskbarButton, 800);
     setTimeout(ensureTaskbarButton, 1600);
