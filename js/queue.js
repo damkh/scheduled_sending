@@ -21,19 +21,31 @@
     var style = document.createElement('style');
     style.id = 'ss-taskbar-style';
     style.textContent =
-      '#ss-taskbar-button{position:relative}' +
-      '#ss-taskbar-button .ss-taskbar-badge{position:absolute;top:2px;right:2px;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#d93025;color:#fff;font:bold 10px/16px Arial,sans-serif;text-align:center;box-shadow:0 0 0 1px rgba(255,255,255,.85);box-sizing:border-box}' +
+      '#ss-taskbar-button{position:relative;box-sizing:border-box}' +
+      '#ss-taskbar-button .ss-taskbar-icon{display:block;width:32px;height:32px;object-fit:contain;margin:0 auto 7px auto}' +
+      '#ss-taskbar-button .ss-taskbar-badge{position:absolute;top:7px;right:22px;min-width:18px;height:18px;padding:0 5px;border-radius:10px;background:#d93025;color:#fff;font:bold 10px/18px Arial,sans-serif;text-align:center;box-shadow:0 0 0 2px rgba(255,255,255,.9);box-sizing:border-box}' +
       '#ss-taskbar-button .ss-taskbar-badge:empty{display:none}' +
-      '#ss-taskbar-button .ss-taskbar-label{pointer-events:none}' +
-      '#ss-taskbar-button.ss-taskbar-plain{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:4px 8px;text-decoration:none}' +
-      '#ss-taskbar-button.ss-taskbar-plain:before{content:"\\23F0";font-size:16px;line-height:1}' +
-      '#ss-taskbar-button.ss-taskbar-plain .ss-taskbar-badge{position:static;display:inline-block;margin-left:2px}' +
-      '#ss-taskbar-button.ss-taskbar-plain .ss-taskbar-badge:empty{display:none}';
+      '#ss-taskbar-button .ss-taskbar-label{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}' +
+      '#ss-taskbar-button.ss-taskbar-plain{display:block;width:100%;padding:10px 4px;text-align:center;text-decoration:none}' +
+      '#ss-taskbar-button.ss-taskbar-plain:hover{text-decoration:none}';
     document.head.appendChild(style);
   }
 
   function taskUrl() {
-    return './?_task=mail&_action=plugin.scheduled_sending.queue';
+    return './?_task=settings&_action=preferences&_section=scheduled_sending';
+  }
+
+  function iconUrl() {
+    if (rcmail.env && rcmail.env.scheduled_sending_icon) {
+      return rcmail.env.scheduled_sending_icon;
+    }
+
+    var script = document.querySelector('script[src*="/plugins/scheduled_sending/js/queue.js"],script[src*="plugins/scheduled_sending/js/queue.js"]');
+    if (script && script.src) {
+      return script.src.replace(/js\/queue\.js(?:\?.*)?$/, 'skins/elastic/images/scheduled_sending.svg');
+    }
+
+    return 'plugins/scheduled_sending/skins/elastic/images/scheduled_sending.svg';
   }
 
   function findTaskLink(task) {
@@ -67,11 +79,10 @@
     link.className = 'ss-taskbar-plain button-scheduled_sending';
     link.setAttribute('title', text('scheduled_nav'));
     link.setAttribute('aria-label', text('scheduled_nav'));
-    link.innerHTML = '<span class="ss-taskbar-label">' + esc(text('scheduled_nav')) + '</span><span class="ss-taskbar-badge"></span>';
+    link.innerHTML = '<img class="ss-taskbar-icon" src="' + esc(iconUrl()) + '" alt="" aria-hidden="true"><span class="ss-taskbar-label">' + esc(text('scheduled_nav')) + '</span><span class="ss-taskbar-badge"></span>';
     link.addEventListener('click', function(ev) {
       ev.preventDefault();
-      if (rcmail.goto_url) rcmail.goto_url('_task=mail&_action=plugin.scheduled_sending.queue');
-      else window.location.href = taskUrl();
+      window.location.href = taskUrl();
     });
 
     if (item) {

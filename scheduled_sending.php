@@ -870,6 +870,12 @@ class scheduled_sending extends rcube_plugin
             exit;
         }
 
+        if ($act === 'plugin.scheduled_sending.queue_count') {
+            $this->load_config();
+            $this->action_queue_count();
+            exit;
+        }
+
         if (($this->rc->task === 'mail' || $this->rc->task === 'settings')
             && $this->rc->user
             && !empty($this->rc->user->ID)
@@ -885,6 +891,7 @@ class scheduled_sending extends rcube_plugin
 
         // assets
         $skin = $this->rc->config->get('skin', 'larry');
+        $this->rc->output->set_env('scheduled_sending_icon', $this->url($this->local_skin_path() . '/images/scheduled_sending.svg'));
         if ($this->rc->task == 'settings') {
             $this->include_script('js/queue.js');
         }
