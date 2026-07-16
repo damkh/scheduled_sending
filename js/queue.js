@@ -21,18 +21,19 @@
     var style = document.createElement('style');
     style.id = 'ss-taskbar-style';
     style.textContent =
+      '#ss-taskbar-item{height:112px;min-height:112px;max-height:112px;overflow:visible}' +
       '#ss-taskbar-button{position:relative;box-sizing:border-box}' +
-      '#ss-taskbar-button .ss-taskbar-icon{display:block;width:32px;height:32px;object-fit:contain;margin:0 auto 7px auto}' +
-      '#ss-taskbar-button .ss-taskbar-badge{position:absolute;top:7px;right:22px;min-width:18px;height:18px;padding:0 5px;border-radius:10px;background:#d93025;color:#fff;font:bold 10px/18px Arial,sans-serif;text-align:center;box-shadow:0 0 0 2px rgba(255,255,255,.9);box-sizing:border-box}' +
+      '#ss-taskbar-button .ss-taskbar-icon{display:block;width:28px;height:28px;object-fit:contain;margin:0 auto 7px auto}' +
+      '#ss-taskbar-button .ss-taskbar-badge{position:absolute;top:18px;right:30px;min-width:18px;height:18px;padding:0 5px;border-radius:10px;background:#d93025;color:#fff;font:bold 10px/18px Arial,sans-serif;text-align:center;box-shadow:0 0 0 2px rgba(255,255,255,.9);box-sizing:border-box}' +
       '#ss-taskbar-button .ss-taskbar-badge:empty{display:none}' +
       '#ss-taskbar-button .ss-taskbar-label{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}' +
-      '#ss-taskbar-button.ss-taskbar-plain{display:block;width:100%;padding:10px 4px;text-align:center;text-decoration:none}' +
+      '#ss-taskbar-button.ss-taskbar-plain{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:112px;padding:8px 3px;text-align:center;text-decoration:none;line-height:1.15}' +
       '#ss-taskbar-button.ss-taskbar-plain:hover{text-decoration:none}';
     document.head.appendChild(style);
   }
 
   function taskUrl() {
-    return './?_task=settings&_action=preferences&_ss_section=scheduled_sending';
+    return './?_task=settings&_action=preferences&_section=scheduled_sending&_ss_section=scheduled_sending';
   }
 
   function inlineIcon() {
@@ -116,15 +117,32 @@
     return match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : '';
   }
 
+  function loadSettingsSectionFrame(section) {
+    try {
+      var frameName = rcmail.env.contentframe || 'preferences-frame';
+      var frame = window.frames && window.frames[frameName] ? window.frames[frameName] : null;
+      var url = (rcmail.env.comm_path || './?_task=settings') + '&_action=edit-prefs&_section=' + encodeURIComponent(section) + '&_framed=1';
+      if (frame) {
+        frame.location.href = url;
+        return true;
+      }
+    } catch(e) {}
+
+    return false;
+  }
+
   function activateSettingsSection() {
     var section = requestedSettingsSection();
     if (!section || !rcmail.env || rcmail.env.task !== 'settings') return;
+    if (window.__ssSettingsSectionActivated) return;
 
     var row = document.getElementById('rcmrow' + section) ||
       document.querySelector('[data-id="' + section + '"], [rel="' + section + '"], a[href*="_section=' + section + '"]');
     if (row) {
       try {
         row.click();
+        window.__ssSettingsSectionActivated = true;
+        setTimeout(function() { loadSettingsSectionFrame(section); }, 100);
         return;
       } catch(e) {}
     }
@@ -133,16 +151,26 @@
       if (rcmail.sections_list && rcmail.sections_list.select && rcmail.section_select) {
         rcmail.sections_list.select(section);
         rcmail.section_select(rcmail.sections_list);
+        window.__ssSettingsSectionActivated = true;
+        setTimeout(function() { loadSettingsSectionFrame(section); }, 100);
         return;
       }
     } catch(e) {}
 
-    try {
-      var frameName = rcmail.env.contentframe || 'preferences-frame';
-      var frame = window.frames && window.frames[frameName] ? window.frames[frameName] : null;
-      var url = (rcmail.env.comm_path || './?_task=settings') + '&_action=edit-prefs&_section=' + encodeURIComponent(section) + '&_framed=1';
-      if (frame) frame.location.href = url;
-    } catch(e) {}
+    if (loadSettingsSectionFrame(section)) {
+      window.__ssSettingsSectionActivated = true;
+    }
+  }
+
+  function activateSettingsSectionSoon() {
+    var tries = 0;
+    var timer = setInterval(function() {
+      tries++;
+      activateSettingsSection();
+      if (window.__ssSettingsSectionActivated || tries >= 20) {
+        clearInterval(timer);
+      }
+    }, 150);
   }
 
   function requestQueueCount() {
@@ -269,8 +297,7 @@
   rcmail.addEventListener('init', function() {
     ensureTaskbarButton();
     setTimeout(ensureTaskbarButton, 250);
-    activateSettingsSection();
-    setTimeout(activateSettingsSection, 300);
+    activateSettingsSectionSoon();
     requestQueueCount();
 
     rcmail.register_command('plugin.scheduled_sending.open_queue', function() {
