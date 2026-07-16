@@ -21,12 +21,13 @@
     var style = document.createElement('style');
     style.id = 'ss-taskbar-style';
     style.textContent =
-      '#ss-taskbar-item{height:72px;min-height:72px;max-height:72px;overflow:visible}' +
+      '#ss-taskbar-item{height:96px;min-height:96px;max-height:96px;overflow:visible}' +
       '#ss-taskbar-button{position:relative;box-sizing:border-box}' +
-      '#ss-taskbar-button .ss-taskbar-icon{display:block;width:30px;height:30px;object-fit:contain;flex:0 0 auto}' +
-      '#ss-taskbar-button .ss-taskbar-badge{display:inline-block;min-width:22px;height:22px;padding:0 6px;border-radius:12px;background:#6f7f83;color:#fff;font:bold 12px/22px Arial,sans-serif;text-align:center;box-shadow:0 0 0 2px rgba(24,35,38,.95);box-sizing:border-box;flex:0 0 auto}' +
-      '#ss-taskbar-button .ss-taskbar-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}' +
-      '#ss-taskbar-button.ss-taskbar-plain{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;width:100%;height:72px;padding:6px 4px;text-align:center;text-decoration:none;line-height:1.15}' +
+      '#ss-taskbar-button .ss-taskbar-main{display:flex;align-items:center;justify-content:center;gap:10px;width:100%}' +
+      '#ss-taskbar-button .ss-taskbar-icon{display:block;width:30px;height:30px;object-fit:contain;flex:0 0 30px}' +
+      '#ss-taskbar-button .ss-taskbar-badge{display:inline-block;min-width:30px;width:30px;height:30px;padding:0;border-radius:50%;background:#6f7f83;color:#fff;font:bold 14px/30px Arial,sans-serif;text-align:center;box-shadow:0 0 0 2px rgba(24,35,38,.95);box-sizing:border-box;flex:0 0 30px}' +
+      '#ss-taskbar-button .ss-taskbar-label{display:block;max-width:100%;margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:18px;line-height:1.1;pointer-events:none}' +
+      '#ss-taskbar-button.ss-taskbar-plain{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:96px;padding:7px 4px;text-align:center;text-decoration:none;line-height:1.15}' +
       '#ss-taskbar-button.ss-taskbar-plain:hover{text-decoration:none}';
     document.head.appendChild(style);
   }
@@ -73,7 +74,7 @@
     link.className = 'ss-taskbar-plain button-scheduled_sending';
     link.setAttribute('title', text('scheduled_nav'));
     link.setAttribute('aria-label', text('scheduled_nav'));
-    link.innerHTML = inlineIcon() + '<span class="ss-taskbar-label">' + esc(text('scheduled_nav')) + '</span><span class="ss-taskbar-badge">0</span>';
+    link.innerHTML = '<span class="ss-taskbar-main">' + inlineIcon() + '<span class="ss-taskbar-badge">0</span></span><span class="ss-taskbar-label">' + esc(text('scheduled_nav')) + '</span>';
     link.addEventListener('click', function(ev) {
       ev.preventDefault();
       window.location.href = taskUrl();
@@ -90,7 +91,6 @@
   }
 
   function ensureTaskbarButton() {
-    if (document.getElementById('ss-taskbar-button')) return;
     ensureTaskbarStyle();
 
     var settings = findTaskLink('settings');
@@ -98,11 +98,15 @@
     var reference = settings || contacts;
     if (!reference || !reference.parentNode) return;
 
-    var buttonNode = createTaskbarButton(reference);
+    var buttonNode = document.getElementById('ss-taskbar-item') ||
+      document.getElementById('ss-taskbar-button') ||
+      createTaskbarButton(reference);
     var targetNode = reference.parentNode && reference.parentNode.tagName &&
       reference.parentNode.tagName.toLowerCase() === 'li' ? reference.parentNode : reference;
 
-    targetNode.parentNode.insertBefore(buttonNode, targetNode.nextSibling);
+    if (buttonNode.parentNode !== targetNode.parentNode || buttonNode.previousSibling !== targetNode) {
+      targetNode.parentNode.insertBefore(buttonNode, targetNode.nextSibling);
+    }
   }
 
   function requestedSettingsSection() {
@@ -291,6 +295,8 @@
   rcmail.addEventListener('init', function() {
     ensureTaskbarButton();
     setTimeout(ensureTaskbarButton, 250);
+    setTimeout(ensureTaskbarButton, 800);
+    setTimeout(ensureTaskbarButton, 1600);
     activateSettingsSectionSoon();
     requestQueueCount();
 
