@@ -89,6 +89,7 @@
   }
 
   function ensureTaskbarButton() {
+    if (rcmail.env && rcmail.env.task === 'settings') return;
     ensureTaskbarStyle();
 
     var settings = findTaskLink('settings');
@@ -112,31 +113,6 @@
         buttonNode.style.setProperty('order', String(order + 1), 'important');
       }
     } catch(e) {}
-  }
-
-  function watchTaskbarPosition() {
-    if (window.__ssTaskbarObserver) return;
-
-    var settings = findTaskLink('settings');
-    var targetNode = settings && settings.parentNode && settings.parentNode.tagName &&
-      settings.parentNode.tagName.toLowerCase() === 'li' ? settings.parentNode : settings;
-    var parent = targetNode && targetNode.parentNode;
-    if (!parent || !window.MutationObserver) return;
-
-    window.__ssTaskbarObserver = new MutationObserver(function() {
-      setTimeout(ensureTaskbarButton, 0);
-    });
-    window.__ssTaskbarObserver.observe(parent, {childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style']});
-  }
-
-  function keepTaskbarPositionForAWhile() {
-    var started = Date.now();
-    var timer = setInterval(function() {
-      ensureTaskbarButton();
-      if (Date.now() - started > 6000) {
-        clearInterval(timer);
-      }
-    }, 300);
   }
 
   function requestedSettingsSection() {
@@ -324,8 +300,6 @@
   // Command to open queue page
   rcmail.addEventListener('init', function() {
     ensureTaskbarButton();
-    watchTaskbarPosition();
-    keepTaskbarPositionForAWhile();
     setTimeout(ensureTaskbarButton, 250);
     setTimeout(ensureTaskbarButton, 800);
     setTimeout(ensureTaskbarButton, 1600);
