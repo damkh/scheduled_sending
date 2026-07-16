@@ -21,13 +21,12 @@
     var style = document.createElement('style');
     style.id = 'ss-taskbar-style';
     style.textContent =
-      '#ss-taskbar-item{height:112px;min-height:112px;max-height:112px;overflow:visible}' +
+      '#ss-taskbar-item{height:72px;min-height:72px;max-height:72px;overflow:visible}' +
       '#ss-taskbar-button{position:relative;box-sizing:border-box}' +
-      '#ss-taskbar-button .ss-taskbar-icon{display:block;width:28px;height:28px;object-fit:contain;margin:0 auto 7px auto}' +
-      '#ss-taskbar-button .ss-taskbar-badge{position:absolute;top:18px;right:30px;min-width:18px;height:18px;padding:0 5px;border-radius:10px;background:#d93025;color:#fff;font:bold 10px/18px Arial,sans-serif;text-align:center;box-shadow:0 0 0 2px rgba(255,255,255,.9);box-sizing:border-box}' +
-      '#ss-taskbar-button .ss-taskbar-badge:empty{display:none}' +
-      '#ss-taskbar-button .ss-taskbar-label{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none}' +
-      '#ss-taskbar-button.ss-taskbar-plain{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:112px;padding:8px 3px;text-align:center;text-decoration:none;line-height:1.15}' +
+      '#ss-taskbar-button .ss-taskbar-icon{display:block;width:30px;height:30px;object-fit:contain;flex:0 0 auto}' +
+      '#ss-taskbar-button .ss-taskbar-badge{display:inline-block;min-width:22px;height:22px;padding:0 6px;border-radius:12px;background:#6f7f83;color:#fff;font:bold 12px/22px Arial,sans-serif;text-align:center;box-shadow:0 0 0 2px rgba(24,35,38,.95);box-sizing:border-box;flex:0 0 auto}' +
+      '#ss-taskbar-button .ss-taskbar-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}' +
+      '#ss-taskbar-button.ss-taskbar-plain{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;width:100%;height:72px;padding:6px 4px;text-align:center;text-decoration:none;line-height:1.15}' +
       '#ss-taskbar-button.ss-taskbar-plain:hover{text-decoration:none}';
     document.head.appendChild(style);
   }
@@ -74,7 +73,7 @@
     link.className = 'ss-taskbar-plain button-scheduled_sending';
     link.setAttribute('title', text('scheduled_nav'));
     link.setAttribute('aria-label', text('scheduled_nav'));
-    link.innerHTML = inlineIcon() + '<span class="ss-taskbar-label">' + esc(text('scheduled_nav')) + '</span><span class="ss-taskbar-badge"></span>';
+    link.innerHTML = inlineIcon() + '<span class="ss-taskbar-label">' + esc(text('scheduled_nav')) + '</span><span class="ss-taskbar-badge">0</span>';
     link.addEventListener('click', function(ev) {
       ev.preventDefault();
       window.location.href = taskUrl();
@@ -92,7 +91,6 @@
 
   function ensureTaskbarButton() {
     if (document.getElementById('ss-taskbar-button')) return;
-    if (rcmail.env && rcmail.env.task === 'settings') return;
     ensureTaskbarStyle();
 
     var settings = findTaskLink('settings');
@@ -104,11 +102,7 @@
     var targetNode = reference.parentNode && reference.parentNode.tagName &&
       reference.parentNode.tagName.toLowerCase() === 'li' ? reference.parentNode : reference;
 
-    if (settings) {
-      targetNode.parentNode.insertBefore(buttonNode, targetNode);
-    } else {
-      targetNode.parentNode.insertBefore(buttonNode, targetNode.nextSibling);
-    }
+    targetNode.parentNode.insertBefore(buttonNode, targetNode.nextSibling);
   }
 
   function requestedSettingsSection() {
@@ -186,7 +180,7 @@
 
     var count = payload && typeof payload.count !== 'undefined' ? parseInt(payload.count, 10) : 0;
     if (!isFinite(count) || count < 0) count = 0;
-    badge.textContent = count > 0 ? (count > 99 ? '99+' : String(count)) : '';
+    badge.textContent = count > 99 ? '99+' : String(count);
     badge.setAttribute('aria-label', count + ' ' + text('scheduledmessages'));
   }
 
