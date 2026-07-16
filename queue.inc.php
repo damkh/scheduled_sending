@@ -230,6 +230,30 @@ trait scheduled_sending_queue_trait {
         $rc->output->send();
     }
 
+    public function action_queue_count()
+    {
+        $rc  = $this->rc;
+        $db  = $rc->get_dbh();
+        $table = $this->ss_queue_table();
+        $user_id = $rc->user && !empty($rc->user->ID) ? (int) $rc->user->ID : 0;
+        $count = 0;
+
+        if ($user_id > 0) {
+            $q = $db->query(
+                "SELECT COUNT(*) AS cnt
+                   FROM $table
+                  WHERE user_id = ? AND status IN ('queued','processing','sending','error')",
+                $user_id
+            );
+            if ($q && ($row = $db->fetch_assoc($q))) {
+                $count = (int) $row['cnt'];
+            }
+        }
+
+        $rc->output->command('plugin.scheduled_sending.queue_count', array('count' => $count));
+        $rc->output->send();
+    }
+
     public function action_queue_cancel()
     {
         $rc  = $this->rc;
